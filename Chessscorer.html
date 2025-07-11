@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>🚀 Chess Scorer Elite</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0a0f29">
+
+  <!-- Chart.js for real-time stats -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      --bg: #0a0f29;
+      --fg: #f0f0f5;
+      --accent: #ff9900;
+      --accent-light: #ffe080;
+      --btn-bg: #1f2542;
+      --btn-hover: #90ee90;
+      --btn-active: #ff4040;
+      --font: 'Segoe UI', sans-serif;
+    }
+    [data-theme="light"] {
+      --bg: #eef2f7;
+      --fg: #222;
+      --btn-bg: #444;
+    }
+
+    * { box-sizing: border-box; margin:0; padding:0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--fg);
+      display: flex; flex-direction: column; align-items: center;
+      min-height:100vh; padding:20px;
+    }
+    h1 { margin-bottom: 1rem; }
+
+    .theme-switcher {
+      position: absolute; top:20px; right:20px;
+      background: var(--btn-bg); border:none; padding:8px;
+      border-radius:4px; color: var(--fg); cursor:pointer;
+    }
+
+    .players {
+      display: flex; gap: 20px; width:100%; max-width:900px;
+    }
+    .player-box {
+      flex:1; background: var(--btn-bg);
+      border-radius:12px; padding:20px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.4);
+    }
+    .player-box h2 {
+      text-align:center; margin-bottom:10px;
+    }
+    .player-box h2 .star {
+      color: var(--accent);
+    }
+    .stat {
+      margin-bottom:8px;
+      font-size:1rem;
+    }
+    .stat label { width:80px; display:inline-block; font-weight:bold; }
+    button {
+      margin:4px; padding:8px 12px; background:var(--btn-bg);
+      border:none; border-radius:6px; color:var(--fg);
+      cursor:pointer; transition:background .2s;
+    }
+    button:hover { background:var(--btn-hover); color:#000 }
+    button.clicked { background:var(--btn-active) !important; color:#fff !important; }
+    .controls { margin:20px 0; text-align:center; }
+
+    .stats-panel {
+      background: var(--btn-bg);
+      padding:20px; border-radius:12px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.3);
+      max-width:900px; width:100%;
+    }
+    canvas { width:100% !important; height:200px !important; }
+  </style>
+</head>
+<body data-theme="dark">
+
+  <button class="theme-switcher" onclick="toggleTheme()">🌓</button>
+  <h1>🚀 Chess Scorer Elite</h1>
+
+  <div class="players">
+    <!-- Player 1 -->
+    <div class="player-box" id="box-p1">
+      <h2 id="label-p1">Player 1</h2>
+      <div class="stat"><label>Timer:</label><span id="p1-timer">20:00</span></div>
+      <div class="stat"><label>Score:</label><span id="p1-score">0</span></div>
+      <div class="stat"><label>Wins:</label><span id="p1-wins">0</span></div>
+      <button onclick="adjust('score','p1',1); clickAnim(this)">+1PTS</button>
+      <button onclick="adjust('score','p1',-1); clickAnim(this)">-1PTS</button>
+      <button onclick="adjust('time','p1',1); clickAnim(this)">+1SEC</button>
+      <button onclick="adjust('time','p1',-1); clickAnim(this)">-1SEC</button>
+      <button onclick="adjust('wins','p1',1); clickAnim(this)">+1 WIN</button>
+      <button onclick="reset('p1'); clickAnim(this)">RESET</button>
+    </div>
+
+    <!-- Player 2 -->
+    <div class="player-box" id="box-p2">
+      <h2 id="label-p2">Player 2</h2>
+      <div class="stat"><label>Timer:</label><span id="p2-timer">20:00</span></div>
+      <div class="stat"><label>Score:</label><span id="p2-score">0</span></div>
+      <div class="stat"><label>Wins:</label><span id="p2-wins">0</span></div>
+      <button onclick="adjust('score','p2',1); clickAnim(this)">+1PTS</button>
+      <button onclick="adjust('score','p2',-1); clickAnim(this)">-1PTS</button>
+      <button onclick="adjust('time','p2',1); clickAnim(this)">+1SEC</button>
+      <button onclick="adjust('time','p2',-1); clickAnim(this)">-1SEC</button>
+      <button onclick="adjust('wins','p2',1); clickAnim(this)">+1 WIN</button>
+      <button onclick="reset('p2'); clickAnim(this)">RESET</button>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button onclick="nextTurn(); clickAnim(this)">NEXT TURN</button>
+    <button onclick="startMatch(); clickAnim(this)">START</button>
+    <button onclick="pauseMatch(); clickAnim(this)">PAUSE</button>
+    <button onclick="resumeMatch(); clickAnim(this)">RESUME</button>
+    <button onclick="newMatch(); clickAnim(this)">NEW GAME</button>
+  </div>
+
+  <div class="stats-panel">
+    <canvas id="turnChart"></canvas>
+  </div>
+
+  <audio id="beep" src="https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg"></audio>
+
+  <script>
+  // — Core State —
+  let active = 'p1';
+  let timers = { p1:1200, p2:1200 };
+  let intervalID = null;
+  let chart;
+
+  // — Initialization —
+  function init() {
+    updateTimers();
+    drawChart();
+    registerServiceWorker();
+  }
+
+  // — Timer Logic —
+  function tick() {
+    if (timers[active] > 0) {
+      timers[active]--;
+      updateTimers();
+      if (timers[active]===0) clearInterval(intervalID);
+    }
+  }
+  function startMatch() {
+    clearInterval(intervalID);
+    intervalID = setInterval(tick, 1000);
+  }
+  function pauseMatch() { clearInterval(intervalID); }
+  function resumeMatch() { startMatch(); }
+
+  // — Turn Switching —
+  function nextTurn() {
+    playBeep();
+    let prev = active;
+    active = active==='p1'?'p2':'p1';
+    document.getElementById(`label-${prev}`).innerHTML = prev==='p1'?'Player 1':'Player 2';
+    document.getElementById(`label-${active}`).innerHTML =
+      (active==='p1'?'Player 1':'Player 2') + ' <span class="star">✨</span>';
+    chart.data.datasets[0].data[ active==='p1'?0:1 ] += 1;
+    chart.update();
+    startMatch();
+  }
+
+  // — Display Updates —
+  function updateTimers() {
+    ['p1','p2'].forEach(id=>{
+      let m = Math.floor(timers[id]/60),
+          s = timers[id]%60;
+      document.getElementById(`${id}-timer`).textContent =
+        `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    });
+  }
+
+  // — Adjust Helpers —
+  function adjust(type, ply, delta) {
+    if (type==='time') {
+      timers[ply] = Math.max(0, timers[ply]+delta);
+      updateTimers();
+    } else {
+      let el = document.getElementById(`${ply}-${type}`);
+      el.textContent = parseInt(el.textContent) + delta;
+    }
+  }
+  function reset(ply) {
+    timers[ply] = 1200;
+    ['score','wins'].forEach(t=> document.getElementById(`${ply}-${t}`).textContent='0');
+    updateTimers();
+  }
+
+  // — Animations & Audio —
+  function clickAnim(btn) {
+    btn.classList.add('clicked');
+    setTimeout(()=>{
+      btn.classList.remove('clicked');
+      btn.style.background= 'var(--accent-light)';
+      setTimeout(()=>{
+        btn.style.background='';
+      },500);
+    },200);
+  }
+  function playBeep() {
+    document.getElementById('beep').play();
+  }
+
+  // — Chart.js Turn Distribution —
+  function drawChart(){
+    const ctx = document.getElementById('turnChart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: ['Player 1','Player 2'],
+        datasets:[{
+          label:'Turns Taken',
+          data:[0,0],
+          backgroundColor:[varToRgb('--accent'), varToRgb('--accent-light')]
+        }]
+      },
+      options:{
+        responsive:true,
+        scales:{
+          y:{beginAtZero:true}
+        }
+      }
+    });
+  }
+
+  function varToRgb(varName){
+    return getComputedStyle(document.documentElement)
+      .getPropertyValue(varName).trim();
+  }
+
+  // — Theme Toggle & PWA —
+  function toggleTheme(){
+    const root = document.body;
+    root.dataset.theme = root.dataset.theme==='dark'?'light':'dark';
+    localStorage.setItem('theme',root.dataset.theme);
+  }
+  function registerServiceWorker(){
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.register('sw.js')
+        .catch(console.error);
+    }
+  }
+
+  // — Load & Start —
+  window.onload = ()=>{
+    document.body.dataset.theme = localStorage.getItem('theme')||'dark';
+    init();
+  };
+  </script>
+
+<div style="margin-top:30px; text-align:center; font-size:1rem;">
+  <h3>🧠 Piece Value Reference</h3>
+  <table style="margin:auto; border-collapse:collapse;">
+    <tr>
+      <th style="padding:8px;">Piece</th>
+      <th style="padding:8px;">Symbol</th>
+      <th style="padding:8px;">Value</th>
+    </tr>
+    <tr><td>Pawn</td><td>♙</td><td>1</td></tr>
+    <tr><td>Knight</td><td>♘</td><td>3</td></tr>
+    <tr><td>Bishop</td><td>♗</td><td>3</td></tr>
+    <tr><td>Rook</td><td>♖</td><td>5</td></tr>
+    <tr><td>Queen</td><td>♕</td><td>9</td></tr>
+    <tr><td>King</td><td>♔</td><td>∞</td></tr>
+  </table>
+</div>
+
+</body>
+</html>
